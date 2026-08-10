@@ -37,10 +37,28 @@ public class BuyingMongoService {
 
         update.set("buyingId", buyingId);
 
-        update.set(
-                "data." + event.getEventType(),
-                payload
-        );
+//        update.set(
+//                "data." + event.getEventType(),
+//                payload
+//        );
+//
+//        mongoTemplate.upsert(
+//                query,
+//                update,
+//                "buying"
+//        );
+
+
+        payload.forEach((key, value) -> {
+
+            if (!"buyingId".equals(key)
+                    && !"requestType".equals(key)) {
+
+                update.set(key, value);
+
+            }
+
+        });
 
         mongoTemplate.upsert(
                 query,

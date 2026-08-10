@@ -36,10 +36,18 @@ public class BookingMongoService {
 
         update.set("bookingId", bookingId);
 
-        update.set(
-                "data." + event.getEventType(),
-                payload
-        );
+//        update.set(
+//                "data." + event.getEventType(),
+//                payload
+//        );
+
+        payload.forEach((key, value) -> {
+
+            if (!"buyingId".equals(key)
+                    && !"requestType".equals(key)) {
+                update.set(key, value);
+            }
+        });
 
         mongoTemplate.upsert(
                 query,

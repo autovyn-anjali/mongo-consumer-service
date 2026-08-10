@@ -7,6 +7,9 @@ import com.sqscon.mongo_consumer_service.models.EventSchema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Locale;
+import java.util.Objects;
+
 @Service
 @RequiredArgsConstructor
 public class EventProcessor {
@@ -16,7 +19,16 @@ public class EventProcessor {
 
     public void process(EventSchema<JsonNode> event) {
 
-        switch (event.getRequestType()) {
+        Objects.requireNonNull(event, "event must not be null");
+        String requestType = event.getRequestType();
+
+        if (requestType == null || requestType.isBlank()) {
+            throw new IllegalArgumentException("requestType/module is missing in event: " + event);
+        }
+
+        String normalizedRequestType = requestType.trim().toUpperCase(Locale.ROOT);
+
+        switch (normalizedRequestType) {
 
             case "BUYING":
                 buyingEventHandler.handle(event);
@@ -28,7 +40,7 @@ public class EventProcessor {
 
             default:
                 throw new IllegalArgumentException(
-                        "Unknown request type : " + event.getRequestType());
+                        "Unknown request type : " + requestType);
         }
 
     }
