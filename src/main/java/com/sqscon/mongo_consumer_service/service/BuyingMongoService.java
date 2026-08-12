@@ -2,16 +2,24 @@ package com.sqscon.mongo_consumer_service.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.client.result.UpdateResult;
+import com.sqscon.mongo_consumer_service.enums.EventType;
 import com.sqscon.mongo_consumer_service.models.EventSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -20,57 +28,279 @@ public class BuyingMongoService {
 
     private final MongoTemplate mongoTemplate;
     private final ObjectMapper objectMapper;
+
+
+    private static final Set<EventType> ALLOWED_BUYING_EVENTS =
+            EnumSet.of(
+                    EventType.BUYING_CREATED,
+                    EventType.BUYING_UPDATED,
+                    EventType.CHALLAN_COUNT_UPDATED,
+                    EventType.AD_BUYING_ADDRESS_UPDATED,
+                    EventType.SALES_DOCKET_UPDATED,
+                    EventType.AD_BOOKING_ADDRESS_UPDATED,
+                    EventType.AD_SET_NAME_FINAL_SIMILARITY,
+                    EventType.AADHAR_INITIATED,
+                    EventType.BOOKING_ADDRESS_UPDATED,
+                    EventType.CUSTOMER_DOCKET_UPDATED,
+                    EventType.DEALER_DOCKET_UPDATED,
+                    EventType.PRESIGNED_URL_GENERATION,
+                    EventType.DOCUMENT_IMAGE_NOTIFICATION,
+                    EventType.DOCUMENT_REMARK_UPDATE,
+                    EventType.DOCUMENT_OPERATION_BUYING_UPDATE,
+                    EventType.DOCUMENT_OPERATION_BOOKING_UPDATE
+
+            );
+
     public void processEvent(EventSchema<JsonNode> event) {
 
-        log.info("Mongo update started for buyingId : {}", event.getRequestId());
+        if (event == null) {
+            log.warn("Ignoring null event");
+            return;
+        }
 
         String buyingId = event.getRequestId();
+        String eventType = event.getEventType();
 
-        Map<String, Object> payload =
-                objectMapper.convertValue(event.getPayload(), Map.class);
+        /*
+         * ---------------------------------------------------------
+         * 1. Validate event type
+         * ---------------------------------------------------------
+         */
 
-        Query query = new Query(
-                Criteria.where("_id").is(buyingId)
+        if (!isAllowedEventType(eventType)) {
+
+            log.warn(
+                    "Ignoring unsupported eventType={} | buyingId={}",
+                    eventType,
+                    buyingId
+            );
+
+            return;
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 2. Validate buyingId
+         * ---------------------------------------------------------
+         */
+
+        if (buyingId == null || buyingId.isBlank()) {
+
+            log.warn(
+                    "Ignoring event because buyingId is missing | eventType={}",
+                    eventType
+            );
+
+            return;
+        }
+
+        log.info(
+                "Mongo update started | buyingId={} | eventType={}",
+                buyingId,
+                eventType
         );
 
+
+
+        Map<String, Object> payload =
+                objectMapper.convertValue(
+                        event.getPayload(),
+                        Map.class
+                );
+
+        if (payload == null || payload.isEmpty()) {
+
+            log.warn(
+                    "Empty payload received | buyingId={} | eventType={}",
+                    buyingId,
+                    eventType
+            );
+
+            return;
+        }
+
+
+
+        Query query = new Query(
+                Criteria.where("buying_id").is(buyingId)
+        );
+
+
+
         Update update = new Update();
-
-        update.set("buyingId", buyingId);
-
-//        update.set(
-//                "data." + event.getEventType(),
-//                payload
-//        );
-//
-//        mongoTemplate.upsert(
-//                query,
-//                update,
-//                "buying"
-//        );
 
 
         payload.forEach((key, value) -> {
 
-            if (!"buyingId".equals(key)
-                    && !"requestType".equals(key)) {
 
-                update.set(key, value);
+            if ("buyingId".equals(key)
+                    || "requestType".equals(key)) {
 
+                return;
             }
 
+            if ("documents".equals(key)) {
+
+                handleDocuments(update, value);
+
+                return;
+            }
+
+
+            String mongoKey = toSnakeCase(key);
+
+            update.set(mongoKey, value);
+
+            log.debug(
+                    "Mongo field prepared | buyingId={} | field={} | value={}",
+                    buyingId,
+                    mongoKey,
+                    value
+            );
         });
 
-        mongoTemplate.upsert(
+
+
+        if (update.getUpdateObject().isEmpty()) {
+
+            log.warn(
+                    "No fields available for Mongo update | buyingId={} | eventType={}",
+                    buyingId,
+                    eventType
+            );
+
+            return;
+        }
+
+        log.info("Mongo query: {}", query);
+        log.info("Mongo update: {}", update);
+
+
+
+        UpdateResult result = mongoTemplate.updateFirst(
                 query,
                 update,
                 "buying"
         );
 
         log.info(
-                "Buying {} updated successfully for {}",
-                event.getEventType(),
-                buyingId
+                "Mongo update result | buyingId={} | eventType={} | matched={} | modified={} | upsertedId={}",
+                buyingId,
+                eventType,
+                result.getMatchedCount(),
+                result.getModifiedCount(),
+                result.getUpsertedId()
+        );
+
+
+
+        if (result.getMatchedCount() == 0) {
+
+            log.warn(
+                    "No Mongo document found | buyingId={} | eventType={}",
+                    buyingId,
+                    eventType
+            );
+
+            return;
+        }
+
+        log.info(
+                "Buying Mongo update successful | buyingId={} | eventType={}",
+                buyingId,
+                eventType
         );
     }
 
+
+    private void handleDocuments(
+            Update update,
+            Object documentsValue
+    ) {
+
+        if (!(documentsValue instanceof List<?> documents)) {
+
+            log.warn(
+                    "documents field is not a List. Ignoring documents update."
+            );
+
+            return;
+        }
+
+        if (documents.isEmpty()) {
+            return;
+        }
+
+
+        for (Object documentValue : documents) {
+
+            if (!(documentValue instanceof Map<?, ?> documentMap)) {
+
+                log.warn(
+                        "Invalid document object inside documents array. Ignoring."
+                );
+
+                continue;
+            }
+
+            Object documentId = documentMap.get("documentId");
+
+            if (documentId == null) {
+
+                log.warn(
+                        "documentId is missing. Ignoring document object={}",
+                        documentMap
+                );
+
+                continue;
+            }
+
+            Document mongoDocument = new Document();
+
+            documentMap.forEach((key, value) -> {
+
+                String fieldName = String.valueOf(key);
+
+                String mongoKey = toSnakeCase(fieldName);
+
+                mongoDocument.put(
+                        mongoKey,
+                        value
+                );
+            });
+
+            update.push("documents", mongoDocument);
+        }
+    }
+
+    private boolean isAllowedEventType(String eventType) {
+
+        if (eventType == null || eventType.isBlank()) {
+            return false;
+        }
+
+        try {
+
+            EventType type = EventType.valueOf(
+                    eventType.trim().toUpperCase(Locale.ROOT)
+            );
+
+            return ALLOWED_BUYING_EVENTS.contains(type);
+
+        } catch (IllegalArgumentException e) {
+
+            return false;
+        }
+    }
+
+
+    private String toSnakeCase(String fieldName) {
+
+        return fieldName
+                .replaceAll(
+                        "([a-z])([A-Z])",
+                        "$1_$2"
+                )
+                .toLowerCase(Locale.ROOT);
+    }
 }
