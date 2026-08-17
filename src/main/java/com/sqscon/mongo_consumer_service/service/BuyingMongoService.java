@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,7 +34,7 @@ public class BuyingMongoService {
     private static final Set<EventType> ALLOWED_BUYING_EVENTS =
             EnumSet.of(
                     EventType.BUYING_CREATED,
-                    EventType.BUYING_UPDATED,
+                    EventType.FASTAG_BUYING_UPDATED,
                     EventType.CHALLAN_COUNT_UPDATED,
                     EventType.BUYING_BYPASS_UPDATED,
                     EventType.UPDATE_DETAILS,
@@ -51,7 +52,10 @@ public class BuyingMongoService {
                     EventType.DOCUMENT_IMAGE_NOTIFICATION,
                     EventType.DOCUMENT_REMARK_UPDATE,
                     EventType.DOCUMENT_OPERATION_BUYING_UPDATE,
-                    EventType.DOCUMENT_OPERATION_BOOKING_UPDATE
+                    EventType.DOCUMENT_OPERATION_BOOKING_UPDATE,
+                    EventType.CUSTOMER_DOCKET_UPDATE,
+                    EventType.DEALER_DOCKET_UPDATE,
+                    EventType.SALES_DOCKET_UPDATE
 
             );
 
@@ -134,11 +138,23 @@ public class BuyingMongoService {
         Update update = new Update();
 
 
-        payload.forEach((key, value) -> {
+        Map<String, Object> fieldsToUpdate = extractFieldsToUpdate(payload);
+
+        if (fieldsToUpdate.isEmpty()) {
+            log.warn(
+                    "No fields available after payload normalization | buyingId={} | eventType={}",
+                    buyingId,
+                    eventType
+            );
+            return;
+        }
+
+        fieldsToUpdate.forEach((key, value) -> {
 
 
             if ("buyingId".equals(key)
-                    || "requestType".equals(key)) {
+                    || "requestType".equals(key)
+                    || key.startsWith("$")) {
 
                 return;
             }
@@ -214,6 +230,43 @@ public class BuyingMongoService {
                 buyingId,
                 eventType
         );
+    }
+
+    private Map<String, Object> extractFieldsToUpdate(
+            Map<String, Object> payload
+    ) {
+
+        if (payload.containsKey("$set")) {
+
+            Object setPayload = payload.get("$set");
+
+            if (!(setPayload instanceof Map<?, ?>)) {
+                log.warn("Payload $set is not a map. Ignoring payload={}", payload);
+                return Map.of();
+            }
+
+            return convertToStringObjectMap(setPayload);
+        }
+
+        return payload;
+    }
+
+    private Map<String, Object> convertToStringObjectMap(
+            Object mapLikeObject
+    ) {
+
+        Map<?, ?> rawMap = objectMapper.convertValue(
+                mapLikeObject,
+                Map.class
+        );
+
+        Map<String, Object> normalizedMap = new LinkedHashMap<>();
+
+        rawMap.forEach((key, value) ->
+                normalizedMap.put(String.valueOf(key), value)
+        );
+
+        return normalizedMap;
     }
 
 

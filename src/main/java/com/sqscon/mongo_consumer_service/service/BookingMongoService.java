@@ -29,7 +29,7 @@ public class BookingMongoService {
                 objectMapper.convertValue(event.getPayload(), Map.class);
 
         Query query = new Query(
-                Criteria.where("_id").is(bookingId)
+                Criteria.where("booking_id_av").is(bookingId)
         );
 
         Update update = new Update();
