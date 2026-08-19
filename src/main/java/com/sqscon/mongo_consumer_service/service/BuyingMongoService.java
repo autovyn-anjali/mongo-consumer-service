@@ -55,7 +55,8 @@ public class BuyingMongoService {
                     EventType.DOCUMENT_OPERATION_BOOKING_UPDATE,
                     EventType.CUSTOMER_DOCKET_UPDATE,
                     EventType.DEALER_DOCKET_UPDATE,
-                    EventType.SALES_DOCKET_UPDATE
+                    EventType.SALES_DOCKET_UPDATE,
+                    EventType.API_HIT_LOG
 
             );
 
