@@ -37,6 +37,8 @@ public class BuyingMongoService {
                     EventType.FASTAG_BUYING_UPDATED,
                     EventType.CHALLAN_COUNT_UPDATED,
                     EventType.BUYING_BYPASS_UPDATED,
+                    EventType.BUYING_BYPASS_AUDIT_CREATED,
+                    EventType.BOOKING_BYPASS_UPDATED,
                     EventType.UPDATE_DETAILS,
                     EventType.GEO_TAGGING_BUYING_UPDATED,
                     EventType.ADDRESS_UPDATE,
